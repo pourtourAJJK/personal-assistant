@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuickTask V1 — 架构说明（Architecture Explainer）</title>
+<style>
+  :root {
+    --ink: #1a2332;
+    --ink-soft: #4a5568;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --line: #e2e8f0;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --warn: #b45309;
+    --warn-bg: #fef3c7;
+    --ok: #047857;
+    --ok-bg: #d1fae5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--ink); background: var(--bg);
+    line-height: 1.7; padding: 2rem 1rem;
+  }
+  .page { max-width: 900px; margin: 0 auto; }
+  header.doc { border-bottom: 3px solid var(--accent); padding-bottom: 1.25rem; margin-bottom: 2rem; }
+  header.doc h1 { font-size: 1.9rem; margin-bottom: .35rem; }
+  header.doc .sub { color: var(--ink-soft); font-size: .95rem; }
+  header.doc .meta { margin-top: .75rem; font-size: .82rem; color: var(--ink-soft); }
+  header.doc .meta span { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: .1rem .55rem; margin-right: .4rem; font-family: Consolas, monospace; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1.5rem 1.75rem; margin-bottom: 1.5rem; }
+  h2 { font-size: 1.25rem; margin-bottom: .9rem; color: var(--accent); display: flex; align-items: center; gap: .5rem; }
+  h2 .n { background: var(--accent); color: #fff; font-size: .8rem; border-radius: 50%; width: 1.6em; height: 1.6em; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  h3 { font-size: 1rem; margin: 1.1rem 0 .4rem; }
+  p { margin-bottom: .7rem; }
+  ul, ol { margin: 0 0 .7rem 1.4rem; }
+  li { margin-bottom: .3rem; }
+  code { font-family: Consolas, "Courier New", monospace; background: #eef2f7; padding: .08em .4em; border-radius: 4px; font-size: .88em; }
+  pre { background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; margin-bottom: .8rem; }
+  pre code { background: none; padding: 0; color: inherit; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; margin-bottom: .8rem; }
+  th, td { border: 1px solid var(--line); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 600; }
+  .badge { display: inline-block; font-size: .75rem; border-radius: 4px; padding: .05rem .5rem; font-family: Consolas, monospace; }
+  .badge.ad { background: var(--accent-soft); color: var(--accent); }
+  .badge.fr { background: var(--ok-bg); color: var(--ok); }
+  .callout { border-left: 4px solid var(--warn); background: var(--warn-bg); padding: .7rem 1rem; border-radius: 0 8px 8px 0; margin: .8rem 0; font-size: .92rem; }
+  .callout.ok { border-color: var(--ok); background: var(--ok-bg); }
+  .diagram { text-align: center; margin: 1rem 0; }
+  .diagram svg { max-width: 100%; height: auto; }
+  footer { color: var(--ink-soft); font-size: .8rem; text-align: center; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc">
+  <h1>QuickTask V1 · 架构说明</h1>
+  <div class="sub">面向课程评估者的人类可读架构文档 · 与 <code>ARCHITECTURE-SPINE.md</code>（实现基线）配套</div>
+  <div class="meta">
+    <span>Python 3.9+</span><span>纯标准库</span><span>分层架构</span><span>JSON 持久化</span><span>status: final</span>
+  </div>
+</header>
+
+<section>
+  <h2><span class="n">1</span>这个程序是什么</h2>
+  <p>QuickTask 是一个命令行任务管理工具：添加任务（标题 / 分类 / 截止日期）、查看全部、标记完成、删除、查看统计。数据保存在本地 <code>data/tasks.json</code>，没有任何网络、账号或第三方依赖 —— 只需一个 Python 3 环境。</p>
+  <p>V1 有意保持功能克制（见 PRD Non-Goals），把架构重心放在<strong>清晰的分层</strong>上：这是为了将来迁移到 React + Django Web 架构时，业务逻辑层可以被直接复用。</p>
+</section>
+
+<section>
+  <h2><span class="n">2</span>分层架构与依赖方向</h2>
+  <div class="diagram">
+  <svg viewBox="0 0 680 400" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+    <defs>
+      <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="none" stroke="#64748b" stroke-width="1.4"/></marker>
+    </defs>
+    <!-- layer bands -->
+    <rect x="20" y="20" width="640" height="92" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
+    <text x="36" y="44" font-size="12" fill="#2563eb" font-weight="600">表现层 · Presentation</text>
+    <rect x="20" y="152" width="640" height="92" rx="10" fill="#f0fdf4" stroke="#bbf7d0"/>
+    <text x="36" y="176" font-size="12" fill="#047857" font-weight="600">业务逻辑层 · Business Logic</text>
+    <rect x="20" y="284" width="640" height="92" rx="10" fill="#fefce8" stroke="#fde68a"/>
+    <text x="36" y="308" font-size="12" fill="#b45309" font-weight="600">数据访问层 · Data Access</text>
+    <!-- boxes -->
+    <rect x="60" y="54" width="140" height="44" rx="8" fill="#1d4ed8"/>
+    <text x="130" y="74" font-size="14" fill="#fff" text-anchor="middle" font-weight="600">main.py</text>
+    <text x="130" y="90" font-size="10.5" fill="#dbeafe" text-anchor="middle">入口：main() → cli.run()</text>
+    <rect x="300" y="54" width="160" height="44" rx="8" fill="#1d4ed8"/>
+    <text x="380" y="74" font-size="14" fill="#fff" text-anchor="middle" font-weight="600">cli.py</text>
+    <text x="380" y="90" font-size="10.5" fill="#dbeafe" text-anchor="middle">菜单 / 输入校验 / 展示</text>
+    <rect x="230" y="186" width="300" height="44" rx="8" fill="#15803d"/>
+    <text x="380" y="206" font-size="14" fill="#fff" text-anchor="middle" font-weight="600">task_manager.py</text>
+    <text x="380" y="222" font-size="10.5" fill="#dcfce7" text-anchor="middle">CRUD · ID 生成 · 统计 · 结果元组</text>
+    <rect x="230" y="318" width="300" height="44" rx="8" fill="#a16207"/>
+    <text x="380" y="338" font-size="14" fill="#fff" text-anchor="middle" font-weight="600">storage.py</text>
+    <text x="380" y="354" font-size="10.5" fill="#fef9c3" text-anchor="middle">load / save · 原子写 · 损坏检测</text>
+    <rect x="560" y="318" width="90" height="44" rx="8" fill="#334155"/>
+    <text x="605" y="338" font-size="13" fill="#fff" text-anchor="middle" font-weight="600">tasks.json</text>
+    <text x="605" y="354" font-size="10" fill="#cbd5e1" text-anchor="middle">data/ 目录</text>
+    <!-- arrows -->
+    <line x1="200" y1="76" x2="292" y2="76" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+    <line x1="380" y1="98" x2="380" y2="180" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+    <line x1="380" y1="230" x2="380" y2="312" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+    <line x1="530" y1="340" x2="554" y2="340" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+    <!-- rule note -->
+    <text x="340" y="270" font-size="11.5" fill="#64748b" text-anchor="middle">依赖只允许向下（AD-1）：禁止跨层调用、禁止向上回调</text>
+  </svg>
+  </div>
+  <p><strong>为什么这样分：</strong>每一层只能调用紧邻的下一层。<code>cli.py</code> 永远不直接触碰 <code>tasks.json</code>；<code>storage.py</code> 不 import 项目内任何模块。将来做 Web 版时，<code>task_manager.py</code> 几乎原样成为 Django 的 service 层，<code>storage.py</code> 换成 ORM，只有表现层需要重写。</p>
+</section>
+
+<section>
+  <h2><span class="n">3</span>七条架构决策（AD-1 ~ AD-7）</h2>
+  <p>每条决策都遵循「绑定什么 → 防止什么 → 规则是什么」的结构。这里是摘要，完整规则见脊柱文档。</p>
+  <table>
+    <tr><th style="width:14%">决策</th><th style="width:30%">一句话规则</th><th>它防止的事故</th></tr>
+    <tr><td><span class="badge ad">AD-1</span> 分层依赖方向</td><td>依赖只能向下：cli → task_manager → storage</td><td>CLI 与存储实现耦合；换存储方案时全项目返工</td></tr>
+    <tr><td><span class="badge ad">AD-2</span> 唯一实体 Task</td><td>6 个固定字段的 dict，仅在 task_manager 中构造与校验</td><td>同一实体在不同模块里长成不同形状</td></tr>
+    <tr><td><span class="badge ad">AD-3</span> 存储独占 + 原子写</td><td>只有 storage 碰 tasks.json；缺文件返回 []，保存 = 临时文件 + os.replace，强制 UTF-8</td><td>多条读写路径互相覆盖；首次运行崩溃；写一半断电留半个文件；中文乱码</td></tr>
+    <tr><td><span class="badge ad">AD-4</span> 直写 + 无缓存</td><td>每次操作现读磁盘，变更后立即保存；任何模块不持有任务缓存</td><td>缓冲写导致崩溃丢数据；统计读到过期缓存</td></tr>
+    <tr><td><span class="badge ad">AD-5</span> ID 生成契约</td><td>TASK + 至少 3 位零填充，max+1，删除后不复用</td><td>ID 冲突；删了 TASK003 又冒出一个新 TASK003</td></tr>
+    <tr><td><span class="badge ad">AD-6</span> 错误边界 + 消息归属</td><td>storage 抛异常 → task_manager 转结果元组 → cli 只显示；操作结果文案归 task_manager，交互提示归 cli</td><td>原始异常直接砸到用户脸上；两套代码各自发明文案</td></tr>
+    <tr><td><span class="badge ad">AD-7</span> 损坏保护</td><td>文件损坏时所有操作一律失败返回，<strong>永不写回</strong></td><td>损坏文件被一次「添加任务」整个覆盖，历史数据全灭</td></tr>
+  </table>
+  <div class="callout">
+    <strong>AD-7 为什么重要：</strong>假设 tasks.json 被手动编辑坏了。如果没有这条规则，用户选「添加任务」时，程序可能以空列表继续运行，然后 save_tasks() 把坏文件整个替换成只含一条新任务的数组 —— 全部历史数据无声消失。AD-7 + AD-4 组合把这个路径彻底堵死：损坏状态下连写操作都不许走到 save。
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">4</span>模块接口契约（谁和谁怎么对话）</h2>
+  <p>脊柱把每个公开函数的签名和返回值形状都钉死了，两个开发者不可能各自实现出对不上的接口：</p>
+<pre><code># storage.py — 仅两个公开函数
+load_tasks()  -> list          # 文件缺失/为空 → []；损坏 → 抛异常
+save_tasks(tasks: list) -> None # 原子写，自动建 data/ 目录
+
+# task_manager.py — 全部返回 (success: bool, message: str, data) 元组
+add_task(title, category, due_date)  -> (True, 成功文案, 新ID)
+view_tasks()                         -> (True, "", 任务列表)
+get_task(task_id)                    -> 任务dict 或 None（删除前展示详情用）
+complete_task(task_id)               -> 已完成时 (True, "already completed", None)
+delete_task(task_id)                 -> (True, 删除成功文案, None)
+get_statistics()                     -> (True, "", {"total", "pending", "completed", "completion_rate"})</code></pre>
+  <h3>一次「删除任务」的完整旅程</h3>
+  <ol>
+    <li><code>cli</code> 收集 ID，调 <code>task_manager.get_task("TASK003")</code> 拿到详情并展示</li>
+    <li>用户确认 y → <code>cli</code> 调 <code>delete_task("TASK003")</code></li>
+    <li><code>task_manager</code>：<code>load_tasks()</code> 现读磁盘 → 从列表移除 → 立即 <code>save_tasks()</code> 原子写回</li>
+    <li>返回 <code>(True, "Task TASK003 deleted successfully!", None)</code> → <code>cli</code> 原样显示，回到主菜单</li>
+    <li>任一步出错：损坏 → (False, 损坏文案, None)，且<strong>不发生任何写盘</strong>；ID 不存在 → (False, "Task not found.", None)</li>
+  </ol>
+</section>
+
+<section>
+  <h2><span class="n">5</span>需求 → 架构映射（8 FR + 4 NFR 全覆盖）</h2>
+  <table>
+    <tr><th style="width:40%">能力</th><th>落在哪</th><th style="width:28%">治理 AD</th></tr>
+    <tr><td><span class="badge fr">FR-1</span> 添加任务（含校验重试）</td><td>cli 输入校验 + task_manager.add_task()</td><td>AD-2 / 3 / 4 / 5 / 6</td></tr>
+    <tr><td><span class="badge fr">FR-2</span> ID 生成</td><td>task_manager.generate_task_id()</td><td>AD-5</td></tr>
+    <tr><td><span class="badge fr">FR-3</span> 查看全部</td><td>view_tasks() + cli 展示</td><td>AD-2 / 3 / 4 / 7</td></tr>
+    <tr><td><span class="badge fr">FR-4</span> 标记完成</td><td>complete_task()</td><td>AD-3 / 4 / 6 / 7</td></tr>
+    <tr><td><span class="badge fr">FR-5</span> 删除（带确认）</td><td>get_task() + delete_task() + cli 确认</td><td>AD-3 / 4 / 5 / 7</td></tr>
+    <tr><td><span class="badge fr">FR-6</span> 统计</td><td>get_statistics()（现读现算，不缓存）</td><td>AD-3 / 4</td></tr>
+    <tr><td><span class="badge fr">FR-7</span> 启动 / 菜单 / 首次初始化</td><td>main → cli.run → load_tasks()（缺文件容错）</td><td>AD-1 / 3</td></tr>
+    <tr><td><span class="badge fr">FR-8</span> 退出</td><td>菜单循环终止（每步已即时保存）</td><td>AD-4</td></tr>
+    <tr><td>NFR 可靠性</td><td>原子写 + 损坏永不覆盖</td><td>AD-3 / 4 / 7</td></tr>
+    <tr><td>NFR 可维护性</td><td>四文件分层 + 钉死的接口契约</td><td>AD-1</td></tr>
+    <tr><td>NFR 安全性</td><td>纯本地数据，零外部调用</td><td>AD-3</td></tr>
+    <tr><td>NFR 易用性</td><td>两套消息文案归属清晰、不重不漏</td><td>AD-6</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="n">6</span>明确推迟的事（以及为什么现在不做没关系）</h2>
+  <ul>
+    <li><strong>任务编辑 / 搜索 / 分类管理</strong> — PRD 明确划出 V1 范围。现有分层下，它们只是 task_manager 新增函数 + cli 新增提示，<strong>零结构改动</strong>。</li>
+    <li><strong>Web 迁移（React + Django，V2.0）</strong> — 这是整个分层的存在理由：业务层可整体平移。</li>
+    <li><strong>逐条任务 schema 校验</strong> — V1 只把「合法 JSON 数组」作为损坏边界，字段级污染推迟到 V1.1。</li>
+    <li><strong>并发锁 / 日志 / 打包 / i18n / 测试框架选型</strong> — 单用户单进程的本地 CLI 暂时都用不上；接口不变的前提下随时可加。</li>
+  </ul>
+  <div class="callout ok">
+    <strong>评估要点：</strong>本架构的全部约束（7 条 AD + 接口契约）都可以在代码里逐条机械验证 —— 检查 import 语句即验证 AD-1/AD-3，检查 save 调用点即验证 AD-4，检查 except 子句即验证 AD-6/AD-7。可验证性本身也是设计目标之一。
+  </div>
+</section>
+
+<footer>
+  QuickTask V1 · Architecture Explainer · 2026-11-06 · 与 ARCHITECTURE-SPINE.md 同源，两者不一致时以脊柱为准
+</footer>
+
+</div>
+</body>
+</html>
