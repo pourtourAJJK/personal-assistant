@@ -32,18 +32,44 @@ _INVALID_TASK_MESSAGE = (
     "Invalid task data, please check title, category and due date."
 )
 
+# Operation-result message when the data file cannot be accessed (AD-6:
+# PermissionError/OSError from storage are converted to a result tuple,
+# never propagated to cli). [Wave-5 fix: gap found by S-402 tests.]
+_ACCESS_ERROR_MESSAGE = (
+    "Unable to access the data file, please check permissions "
+    "for data/tasks.json."
+)
+
 
 def _load_or_fail():
-    """load_tasks() fresh from disk, converting corruption to a failure.
+    """load_tasks() fresh from disk, converting storage errors to failures.
 
-    Returns (tasks, None) on success or (None, _CORRUPTION_MESSAGE) when the
-    file is corrupt (AD-7). json.JSONDecodeError is a subclass of ValueError,
-    so catching ValueError covers both corruption signals storage can raise.
+    Returns (tasks, None) on success; (None, _CORRUPTION_MESSAGE) when the
+    file is corrupt (AD-7); (None, _ACCESS_ERROR_MESSAGE) on OSError such as
+    PermissionError (AD-6). json.JSONDecodeError is a subclass of ValueError,
+    so ValueError covers both corruption signals storage can raise.
     """
     try:
         return storage.load_tasks(), None
     except ValueError:
         return None, _CORRUPTION_MESSAGE
+    except OSError:
+        return None, _ACCESS_ERROR_MESSAGE
+
+
+def _save_or_fail(tasks):
+    """save_tasks() with the AD-6 boundary applied.
+
+    Returns None on success or _ACCESS_ERROR_MESSAGE on OSError. On failure
+    the on-disk file is untouched (atomic write, AD-3) and the caller
+    returns a failure tuple; the in-memory mutation is discarded (AD-4
+    means no cache, so nothing stale survives).
+    """
+    try:
+        storage.save_tasks(tasks)
+        return None
+    except OSError:
+        return _ACCESS_ERROR_MESSAGE
 
 
 def _is_task_with_id(task, task_id):
@@ -111,6 +137,7 @@ def add_task(title: str, category: str, due_date: str) -> tuple:
     Returns (True, "Task created successfully! Task ID: {id}, Task title:
     {title}", new_id) or a failure tuple. On a corrupt file: fails closed and
     never saves (AD-7). On an invalid entity: fails without saving (AD-2).
+    On an inaccessible file: fails without saving (AD-6).
     """
     tasks, err = _load_or_fail()
     if err:
@@ -120,7 +147,9 @@ def add_task(title: str, category: str, due_date: str) -> tuple:
     if task is None:
         return (False, _INVALID_TASK_MESSAGE, None)
     tasks.append(task)
-    storage.save_tasks(tasks)
+    save_err = _save_or_fail(tasks)
+    if save_err:
+        return (False, save_err, None)
     return (True, "Task created successfully! "
                   "Task ID: {}, Task title: {}".format(new_id, title), new_id)
 
@@ -192,7 +221,8 @@ def complete_task(task_id: str) -> tuple:
     (True, "Task {id} is already completed.", None) for the idempotent
     no-op [pinned in the spine contract]; (False, "Task not found, please
     check the Task ID.", None) when the ID does not exist. On a corrupt
-    file: fails closed, never saves (AD-7).
+    file: fails closed, never saves (AD-7). On an inaccessible file:
+    fails without saving (AD-6).
     """
     tasks, err = _load_or_fail()
     if err:
@@ -203,7 +233,9 @@ def complete_task(task_id: str) -> tuple:
                 return (True, "Task {} is already completed.".format(task_id),
                         None)
             task["completed"] = True
-            storage.save_tasks(tasks)
+            save_err = _save_or_fail(tasks)
+            if save_err:
+                return (False, save_err, None)
             return (True, "Task {} marked as complete!".format(task_id), None)
     return (False, "Task not found, please check the Task ID.", None)
 
@@ -219,7 +251,7 @@ def delete_task(task_id: str) -> tuple:
     (False, "Task not found.", None) — note the shorter PRD FR-5 wording,
     distinct from FR-4's message. ID non-reuse is guaranteed by
     generate_task_id (AD-5), not here. On a corrupt file: fails closed,
-    never saves (AD-7).
+    never saves (AD-7). On an inaccessible file: fails without saving (AD-6).
     """
     tasks, err = _load_or_fail()
     if err:
@@ -227,7 +259,9 @@ def delete_task(task_id: str) -> tuple:
     for index, task in enumerate(tasks):
         if _is_task_with_id(task, task_id):
             del tasks[index]
-            storage.save_tasks(tasks)
+            save_err = _save_or_fail(tasks)
+            if save_err:
+                return (False, save_err, None)
             return (True, "Task {} deleted successfully!".format(task_id),
                     None)
     return (False, "Task not found.", None)
